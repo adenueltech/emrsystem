@@ -11,8 +11,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
-import { toast } from "sonner"
+import { createClient } from "@/lib/supabase/client"
+import { useToast } from "@/hooks/use-toast"
 import { CalendarDays, User, Stethoscope, FileText, Activity, Plus, X } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 
@@ -21,6 +21,7 @@ interface Patient {
   patient_id: string
   first_name: string
   last_name: string
+  phone?: string
 }
 
 interface NewVisitFormProps {
@@ -29,7 +30,8 @@ interface NewVisitFormProps {
 
 export function NewVisitForm({ patients }: NewVisitFormProps) {
   const router = useRouter()
-  const supabase = createClientComponentClient()
+  const supabase = createClient()
+  const { toast } = useToast()
   const [loading, setLoading] = useState(false)
   const [selectedPatient, setSelectedPatient] = useState("")
   const [diagnosis, setDiagnosis] = useState<string[]>([])
@@ -82,7 +84,11 @@ export function NewVisitForm({ patients }: NewVisitFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedPatient) {
-      toast.error("Please select a patient")
+      toast({
+        title: "Error",
+        description: "Please select a patient",
+        variant: "destructive",
+      })
       return
     }
 
@@ -90,9 +96,9 @@ export function NewVisitForm({ patients }: NewVisitFormProps) {
 
     try {
       const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (!session) throw new Error("No session")
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) throw new Error("No user found")
 
       // Prepare vital signs
       const vitalSigns = {
@@ -106,33 +112,36 @@ export function NewVisitForm({ patients }: NewVisitFormProps) {
       }
 
       // Create visit record
-      const { data: visit, error } = await supabase
-        .from("visits")
-        .insert({
-          patient_id: selectedPatient,
-          doctor_id: session.user.id,
-          visit_date: new Date().toISOString(),
-          visit_type: formData.visit_type,
-          chief_complaint: formData.chief_complaint,
-          vital_signs: vitalSigns,
-          soap_subjective: formData.soap_subjective,
-          soap_objective: formData.soap_objective,
-          soap_assessment: formData.soap_assessment,
-          soap_plan: formData.soap_plan,
-          diagnosis: diagnosis,
-          follow_up_date: formData.follow_up_date || null,
-          notes: formData.notes,
-        })
-        .select()
-        .single()
+      const { error } = await supabase.from("visits").insert({
+        patient_id: selectedPatient,
+        doctor_id: user.id,
+        visit_date: new Date().toISOString(),
+        visit_type: formData.visit_type,
+        chief_complaint: formData.chief_complaint,
+        vital_signs: vitalSigns,
+        soap_subjective: formData.soap_subjective,
+        soap_objective: formData.soap_objective,
+        soap_assessment: formData.soap_assessment,
+        soap_plan: formData.soap_plan,
+        diagnosis: diagnosis,
+        follow_up_date: formData.follow_up_date || null,
+        notes: formData.notes,
+      })
 
       if (error) throw error
 
-      toast.success("Visit recorded successfully!")
+      toast({
+        title: "Success",
+        description: "Visit recorded successfully!",
+      })
       router.push("/visits")
     } catch (error) {
       console.error("Error creating visit:", error)
-      toast.error("Failed to record visit. Please try again.")
+      toast({
+        title: "Error",
+        description: "Failed to record visit. Please try again.",
+        variant: "destructive",
+      })
     } finally {
       setLoading(false)
     }
@@ -140,282 +149,289 @@ export function NewVisitForm({ patients }: NewVisitFormProps) {
 
   return (
     <DashboardLayout>
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Patient Selection */}
-        <Card className="border-medledger-teal/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-medledger-navy">
-              <User className="h-5 w-5" />
-              Patient Information
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="patient">Select Patient *</Label>
-              <Select value={selectedPatient} onValueChange={setSelectedPatient}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a patient" />
-                </SelectTrigger>
-                <SelectContent>
-                  {patients.map((patient) => (
-                    <SelectItem key={patient.id} value={patient.id}>
-                      {patient.first_name} {patient.last_name} ({patient.patient_id})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+      <div className="space-y-6">
+        {/* Header */}
+        <div>
+          <h1 className="text-3xl font-bold text-medledger-navy">New Patient Visit</h1>
+          <p className="text-gray-600 mt-2">Record a new patient consultation</p>
+        </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Patient Selection */}
+          <Card className="border-medledger-teal/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-medledger-navy">
+                <User className="h-5 w-5" />
+                Patient Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div>
-                <Label htmlFor="visit_type">Visit Type *</Label>
-                <Select value={formData.visit_type} onValueChange={(value) => handleInputChange("visit_type", value)}>
+                <Label htmlFor="patient">Select Patient *</Label>
+                <Select value={selectedPatient} onValueChange={setSelectedPatient}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select visit type" />
+                    <SelectValue placeholder="Choose a patient" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="consultation">Consultation</SelectItem>
-                    <SelectItem value="follow-up">Follow-up</SelectItem>
-                    <SelectItem value="emergency">Emergency</SelectItem>
-                    <SelectItem value="routine-checkup">Routine Checkup</SelectItem>
-                    <SelectItem value="specialist-referral">Specialist Referral</SelectItem>
+                    {patients.map((patient) => (
+                      <SelectItem key={patient.id} value={patient.id}>
+                        {patient.first_name} {patient.last_name} ({patient.patient_id})
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              <div>
-                <Label htmlFor="chief_complaint">Chief Complaint</Label>
-                <Input
-                  id="chief_complaint"
-                  value={formData.chief_complaint}
-                  onChange={(e) => handleInputChange("chief_complaint", e.target.value)}
-                  placeholder="Patient's main concern"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="visit_type">Visit Type *</Label>
+                  <Select value={formData.visit_type} onValueChange={(value) => handleInputChange("visit_type", value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select visit type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="consultation">Consultation</SelectItem>
+                      <SelectItem value="follow-up">Follow-up</SelectItem>
+                      <SelectItem value="emergency">Emergency</SelectItem>
+                      <SelectItem value="routine">Routine Checkup</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-        {/* Vital Signs */}
-        <Card className="border-medledger-teal/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-medledger-navy">
-              <Activity className="h-5 w-5" />
-              Vital Signs
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              <div>
-                <Label htmlFor="bp_systolic">BP Systolic</Label>
-                <Input
-                  id="bp_systolic"
-                  type="number"
-                  value={formData.bp_systolic}
-                  onChange={(e) => handleInputChange("bp_systolic", e.target.value)}
-                  placeholder="120"
-                />
+                <div>
+                  <Label htmlFor="chief_complaint">Chief Complaint</Label>
+                  <Input
+                    id="chief_complaint"
+                    value={formData.chief_complaint}
+                    onChange={(e) => handleInputChange("chief_complaint", e.target.value)}
+                    placeholder="Patient's main concern"
+                  />
+                </div>
               </div>
-              <div>
-                <Label htmlFor="bp_diastolic">BP Diastolic</Label>
-                <Input
-                  id="bp_diastolic"
-                  type="number"
-                  value={formData.bp_diastolic}
-                  onChange={(e) => handleInputChange("bp_diastolic", e.target.value)}
-                  placeholder="80"
-                />
-              </div>
-              <div>
-                <Label htmlFor="pulse">Pulse (bpm)</Label>
-                <Input
-                  id="pulse"
-                  type="number"
-                  value={formData.pulse}
-                  onChange={(e) => handleInputChange("pulse", e.target.value)}
-                  placeholder="72"
-                />
-              </div>
-              <div>
-                <Label htmlFor="temperature">Temp (°C)</Label>
-                <Input
-                  id="temperature"
-                  type="number"
-                  step="0.1"
-                  value={formData.temperature}
-                  onChange={(e) => handleInputChange("temperature", e.target.value)}
-                  placeholder="36.5"
-                />
-              </div>
-              <div>
-                <Label htmlFor="weight">Weight (kg)</Label>
-                <Input
-                  id="weight"
-                  type="number"
-                  step="0.1"
-                  value={formData.weight}
-                  onChange={(e) => handleInputChange("weight", e.target.value)}
-                  placeholder="70"
-                />
-              </div>
-              <div>
-                <Label htmlFor="height">Height (cm)</Label>
-                <Input
-                  id="height"
-                  type="number"
-                  value={formData.height}
-                  onChange={(e) => handleInputChange("height", e.target.value)}
-                  placeholder="170"
-                />
-              </div>
-            </div>
-            {calculateBMI() && (
-              <div className="mt-4 p-3 bg-medledger-light/30 rounded-lg">
-                <p className="text-sm text-medledger-navy">
-                  <strong>Calculated BMI:</strong> {calculateBMI()}
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        {/* SOAP Notes */}
-        <Card className="border-medledger-teal/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-medledger-navy">
-              <FileText className="h-5 w-5" />
-              SOAP Notes
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="soap_subjective">Subjective</Label>
-              <Textarea
-                id="soap_subjective"
-                value={formData.soap_subjective}
-                onChange={(e) => handleInputChange("soap_subjective", e.target.value)}
-                placeholder="Patient's description of symptoms, history..."
-                rows={3}
-              />
-            </div>
-            <div>
-              <Label htmlFor="soap_objective">Objective</Label>
-              <Textarea
-                id="soap_objective"
-                value={formData.soap_objective}
-                onChange={(e) => handleInputChange("soap_objective", e.target.value)}
-                placeholder="Physical examination findings, test results..."
-                rows={3}
-              />
-            </div>
-            <div>
-              <Label htmlFor="soap_assessment">Assessment</Label>
-              <Textarea
-                id="soap_assessment"
-                value={formData.soap_assessment}
-                onChange={(e) => handleInputChange("soap_assessment", e.target.value)}
-                placeholder="Clinical impression, diagnosis..."
-                rows={3}
-              />
-            </div>
-            <div>
-              <Label htmlFor="soap_plan">Plan</Label>
-              <Textarea
-                id="soap_plan"
-                value={formData.soap_plan}
-                onChange={(e) => handleInputChange("soap_plan", e.target.value)}
-                placeholder="Treatment plan, medications, follow-up..."
-                rows={3}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Diagnosis */}
-        <Card className="border-medledger-teal/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-medledger-navy">
-              <Stethoscope className="h-5 w-5" />
-              Diagnosis
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex gap-2">
-              <Input
-                value={newDiagnosis}
-                onChange={(e) => setNewDiagnosis(e.target.value)}
-                placeholder="Add diagnosis"
-                onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), addDiagnosis())}
-              />
-              <Button type="button" onClick={addDiagnosis} size="sm">
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-            {diagnosis.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {diagnosis.map((item, index) => (
-                  <Badge key={index} variant="secondary" className="flex items-center gap-1">
-                    {item}
-                    <button type="button" onClick={() => removeDiagnosis(index)} className="ml-1 hover:text-red-600">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
+          {/* Vital Signs */}
+          <Card className="border-medledger-teal/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-medledger-navy">
+                <Activity className="h-5 w-5" />
+                Vital Signs
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                <div>
+                  <Label htmlFor="bp_systolic">BP Systolic</Label>
+                  <Input
+                    id="bp_systolic"
+                    type="number"
+                    value={formData.bp_systolic}
+                    onChange={(e) => handleInputChange("bp_systolic", e.target.value)}
+                    placeholder="120"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="bp_diastolic">BP Diastolic</Label>
+                  <Input
+                    id="bp_diastolic"
+                    type="number"
+                    value={formData.bp_diastolic}
+                    onChange={(e) => handleInputChange("bp_diastolic", e.target.value)}
+                    placeholder="80"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="pulse">Pulse (bpm)</Label>
+                  <Input
+                    id="pulse"
+                    type="number"
+                    value={formData.pulse}
+                    onChange={(e) => handleInputChange("pulse", e.target.value)}
+                    placeholder="72"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="temperature">Temp (°C)</Label>
+                  <Input
+                    id="temperature"
+                    type="number"
+                    step="0.1"
+                    value={formData.temperature}
+                    onChange={(e) => handleInputChange("temperature", e.target.value)}
+                    placeholder="36.5"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="weight">Weight (kg)</Label>
+                  <Input
+                    id="weight"
+                    type="number"
+                    step="0.1"
+                    value={formData.weight}
+                    onChange={(e) => handleInputChange("weight", e.target.value)}
+                    placeholder="70"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="height">Height (cm)</Label>
+                  <Input
+                    id="height"
+                    type="number"
+                    value={formData.height}
+                    onChange={(e) => handleInputChange("height", e.target.value)}
+                    placeholder="170"
+                  />
+                </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
+              {calculateBMI() && (
+                <div className="mt-4 p-3 bg-medledger-light/30 rounded-lg">
+                  <p className="text-sm text-medledger-navy">
+                    <strong>Calculated BMI:</strong> {calculateBMI()}
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-        {/* Additional Information */}
-        <Card className="border-medledger-teal/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-medledger-navy">
-              <CalendarDays className="h-5 w-5" />
-              Additional Information
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="follow_up_date">Follow-up Date</Label>
-              <Input
-                id="follow_up_date"
-                type="date"
-                value={formData.follow_up_date}
-                onChange={(e) => handleInputChange("follow_up_date", e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="notes">Additional Notes</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) => handleInputChange("notes", e.target.value)}
-                placeholder="Any additional notes or observations..."
-                rows={3}
-              />
-            </div>
-          </CardContent>
-        </Card>
+          {/* SOAP Notes */}
+          <Card className="border-medledger-teal/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-medledger-navy">
+                <FileText className="h-5 w-5" />
+                SOAP Notes
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="soap_subjective">Subjective</Label>
+                <Textarea
+                  id="soap_subjective"
+                  value={formData.soap_subjective}
+                  onChange={(e) => handleInputChange("soap_subjective", e.target.value)}
+                  placeholder="Patient's description of symptoms, history..."
+                  rows={3}
+                />
+              </div>
+              <div>
+                <Label htmlFor="soap_objective">Objective</Label>
+                <Textarea
+                  id="soap_objective"
+                  value={formData.soap_objective}
+                  onChange={(e) => handleInputChange("soap_objective", e.target.value)}
+                  placeholder="Physical examination findings, test results..."
+                  rows={3}
+                />
+              </div>
+              <div>
+                <Label htmlFor="soap_assessment">Assessment</Label>
+                <Textarea
+                  id="soap_assessment"
+                  value={formData.soap_assessment}
+                  onChange={(e) => handleInputChange("soap_assessment", e.target.value)}
+                  placeholder="Clinical impression, diagnosis..."
+                  rows={3}
+                />
+              </div>
+              <div>
+                <Label htmlFor="soap_plan">Plan</Label>
+                <Textarea
+                  id="soap_plan"
+                  value={formData.soap_plan}
+                  onChange={(e) => handleInputChange("soap_plan", e.target.value)}
+                  placeholder="Treatment plan, medications, follow-up..."
+                  rows={3}
+                />
+              </div>
+            </CardContent>
+          </Card>
 
-        {/* Submit Buttons */}
-        <div className="flex gap-4 justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => router.back()}
-            className="border-medledger-teal text-medledger-teal hover:bg-medledger-teal/10"
-          >
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            disabled={loading || !selectedPatient || !formData.visit_type}
-            className="bg-medledger-teal hover:bg-medledger-teal/90"
-          >
-            {loading ? "Recording..." : "Record Visit"}
-          </Button>
-        </div>
-      </form>
+          {/* Diagnosis */}
+          <Card className="border-medledger-teal/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-medledger-navy">
+                <Stethoscope className="h-5 w-5" />
+                Diagnosis
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  value={newDiagnosis}
+                  onChange={(e) => setNewDiagnosis(e.target.value)}
+                  placeholder="Add diagnosis"
+                  onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), addDiagnosis())}
+                />
+                <Button type="button" onClick={addDiagnosis} size="sm">
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              {diagnosis.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {diagnosis.map((item, index) => (
+                    <Badge key={index} variant="secondary" className="flex items-center gap-1">
+                      {item}
+                      <button type="button" onClick={() => removeDiagnosis(index)} className="ml-1 hover:text-red-600">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Additional Information */}
+          <Card className="border-medledger-teal/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-medledger-navy">
+                <CalendarDays className="h-5 w-5" />
+                Additional Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="follow_up_date">Follow-up Date</Label>
+                <Input
+                  id="follow_up_date"
+                  type="date"
+                  value={formData.follow_up_date}
+                  onChange={(e) => handleInputChange("follow_up_date", e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="notes">Additional Notes</Label>
+                <Textarea
+                  id="notes"
+                  value={formData.notes}
+                  onChange={(e) => handleInputChange("notes", e.target.value)}
+                  placeholder="Any additional notes or observations..."
+                  rows={3}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Submit Buttons */}
+          <div className="flex gap-4 justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => router.back()}
+              className="border-medledger-teal text-medledger-teal hover:bg-medledger-teal/10"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={loading || !selectedPatient || !formData.visit_type}
+              className="bg-medledger-teal hover:bg-medledger-teal/90"
+            >
+              {loading ? "Recording..." : "Record Visit"}
+            </Button>
+          </div>
+        </form>
+      </div>
     </DashboardLayout>
   )
 }
