@@ -2,346 +2,372 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Calendar } from "@/components/ui/calendar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { CalendarIcon, Clock, User, FileText } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
-import { Calendar, Clock, User, FileText } from "lucide-react"
-import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { format, addDays } from "date-fns"
+import { format, addDays, isBefore, startOfDay } from "date-fns"
+import type { Patient } from "@/lib/types"
 
-interface Patient {
-  id: string
-  patient_id: string
-  first_name: string
-  last_name: string
-  phone?: string
-}
+export function NewAppointmentForm() {
+  const [patients, setPatients] = useState<Patient[]>([])
+  const [selectedPatient, setSelectedPatient] = useState<string>("")
+  const [selectedPatientData, setSelectedPatientData] = useState<Patient | null>(null)
+  const [appointmentDate, setAppointmentDate] = useState<Date>()
+  const [appointmentTime, setAppointmentTime] = useState<string>("")
+  const [duration, setDuration] = useState<string>("30")
+  const [reason, setReason] = useState("")
+  const [notes, setNotes] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [isLoadingPatients, setIsLoadingPatients] = useState(true)
 
-interface NewAppointmentFormProps {
-  patients: Patient[]
-}
-
-export function NewAppointmentForm({ patients }: NewAppointmentFormProps) {
   const router = useRouter()
-  const supabase = createClient()
   const { toast } = useToast()
-  const [loading, setLoading] = useState(false)
-  const [selectedPatient, setSelectedPatient] = useState("")
+  const supabase = createClient()
 
-  const [formData, setFormData] = useState({
-    appointment_date: "",
-    appointment_time: "",
-    duration: "30",
-    reason: "",
-    notes: "",
-  })
+  useEffect(() => {
+    fetchPatients()
+  }, [])
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+  useEffect(() => {
+    if (selectedPatient) {
+      const patient = patients.find((p) => p.id === selectedPatient)
+      setSelectedPatientData(patient || null)
+    } else {
+      setSelectedPatientData(null)
+    }
+  }, [selectedPatient, patients])
+
+  const fetchPatients = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data, error } = await supabase.from("patients").select("*").eq("doctor_id", user.id).order("first_name")
+
+      if (error) throw error
+      setPatients(data || [])
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load patients",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoadingPatients(false)
+    }
   }
 
-  const generateTimeSlots = () => {
-    const slots = []
-    for (let hour = 8; hour < 18; hour++) {
-      for (let minute = 0; minute < 60; minute += 30) {
-        const time = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`
-        slots.push(time)
-      }
+  const checkAppointmentConflict = async (date: Date, time: string, duration: number) => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return false
+
+      const appointmentDateTime = new Date(date)
+      const [hours, minutes] = time.split(":").map(Number)
+      appointmentDateTime.setHours(hours, minutes, 0, 0)
+
+      const endDateTime = new Date(appointmentDateTime.getTime() + duration * 60000)
+
+      const { data, error } = await supabase
+        .from("appointments")
+        .select("*")
+        .eq("doctor_id", user.id)
+        .eq("status", "scheduled")
+        .gte("appointment_date", appointmentDateTime.toISOString())
+        .lt("appointment_date", endDateTime.toISOString())
+
+      if (error) throw error
+      return data && data.length > 0
+    } catch (error) {
+      console.error("Error checking appointment conflict:", error)
+      return false
     }
-    return slots
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedPatient || !formData.appointment_date || !formData.appointment_time) {
+    if (!selectedPatient || !appointmentDate || !appointmentTime || !reason) {
       toast({
-        title: "Error",
+        title: "Missing Information",
         description: "Please fill in all required fields",
         variant: "destructive",
       })
       return
     }
 
-    setLoading(true)
+    // Check if appointment is in the past
+    const appointmentDateTime = new Date(appointmentDate)
+    const [hours, minutes] = appointmentTime.split(":").map(Number)
+    appointmentDateTime.setHours(hours, minutes, 0, 0)
+
+    if (isBefore(appointmentDateTime, new Date())) {
+      toast({
+        title: "Invalid Date",
+        description: "Cannot schedule appointments in the past",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsLoading(true)
 
     try {
+      // Check for conflicts
+      const hasConflict = await checkAppointmentConflict(appointmentDate, appointmentTime, Number.parseInt(duration))
+      if (hasConflict) {
+        toast({
+          title: "Scheduling Conflict",
+          description: "You already have an appointment at this time",
+          variant: "destructive",
+        })
+        setIsLoading(false)
+        return
+      }
+
       const {
         data: { user },
       } = await supabase.auth.getUser()
-      if (!user) throw new Error("No user found")
+      if (!user) throw new Error("Not authenticated")
 
-      // Combine date and time
-      const appointmentDateTime = new Date(`${formData.appointment_date}T${formData.appointment_time}:00`)
-
-      // Check if appointment time is in the past
-      if (appointmentDateTime < new Date()) {
-        toast({
-          title: "Error",
-          description: "Cannot schedule appointments in the past",
-          variant: "destructive",
-        })
-        setLoading(false)
-        return
-      }
-
-      // Check for conflicting appointments
-      const { data: existingAppointments } = await supabase
-        .from("appointments")
-        .select("id")
-        .eq("doctor_id", user.id)
-        .eq("appointment_date", appointmentDateTime.toISOString())
-        .eq("status", "scheduled")
-
-      if (existingAppointments && existingAppointments.length > 0) {
-        toast({
-          title: "Error",
-          description: "You already have an appointment scheduled at this time",
-          variant: "destructive",
-        })
-        setLoading(false)
-        return
-      }
-
-      // Create appointment record
       const { error } = await supabase.from("appointments").insert({
         patient_id: selectedPatient,
         doctor_id: user.id,
         appointment_date: appointmentDateTime.toISOString(),
-        duration: Number.parseInt(formData.duration),
+        duration: Number.parseInt(duration),
+        reason: reason,
+        notes: notes,
         status: "scheduled",
-        reason: formData.reason,
-        notes: formData.notes,
       })
 
       if (error) throw error
 
       toast({
         title: "Success",
-        description: "Appointment scheduled successfully!",
+        description: "Appointment scheduled successfully",
       })
+
       router.push("/appointments")
     } catch (error) {
-      console.error("Error creating appointment:", error)
       toast({
         title: "Error",
-        description: "Failed to schedule appointment. Please try again.",
+        description: "Failed to schedule appointment",
         variant: "destructive",
       })
     } finally {
-      setLoading(false)
+      setIsLoading(false)
     }
   }
 
-  const selectedPatientInfo = patients.find((p) => p.id === selectedPatient)
+  // Generate time slots (8 AM to 6 PM, 30-minute intervals)
+  const timeSlots = []
+  for (let hour = 8; hour < 18; hour++) {
+    for (let minute = 0; minute < 60; minute += 30) {
+      const timeString = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`
+      timeSlots.push(timeString)
+    }
+  }
+
+  const durationOptions = [
+    { value: "15", label: "15 minutes" },
+    { value: "30", label: "30 minutes" },
+    { value: "45", label: "45 minutes" },
+    { value: "60", label: "1 hour" },
+    { value: "90", label: "1.5 hours" },
+    { value: "120", label: "2 hours" },
+  ]
 
   return (
-    <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-medledger-navy">Schedule Appointment</h1>
-          <p className="text-gray-600 mt-2">Book a new appointment with a patient</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Patient Selection */}
-          <Card className="border-medledger-teal/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-medledger-navy">
-                <User className="h-5 w-5" />
-                Patient Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="patient">Select Patient *</Label>
-                <Select value={selectedPatient} onValueChange={setSelectedPatient}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a patient" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {patients.map((patient) => (
-                      <SelectItem key={patient.id} value={patient.id}>
-                        {patient.first_name} {patient.last_name} ({patient.patient_id})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {selectedPatientInfo && (
-                <div className="p-3 bg-medledger-light/30 rounded-lg">
-                  <p className="text-sm text-medledger-navy">
-                    <strong>Patient:</strong> {selectedPatientInfo.first_name} {selectedPatientInfo.last_name}
-                  </p>
-                  <p className="text-sm text-medledger-navy">
-                    <strong>ID:</strong> {selectedPatientInfo.patient_id}
-                  </p>
-                  {selectedPatientInfo.phone && (
-                    <p className="text-sm text-medledger-navy">
-                      <strong>Phone:</strong> {selectedPatientInfo.phone}
-                    </p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Appointment Details */}
-          <Card className="border-medledger-teal/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-medledger-navy">
-                <Calendar className="h-5 w-5" />
-                Appointment Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="appointment_date">Date *</Label>
-                  <Input
-                    id="appointment_date"
-                    type="date"
-                    value={formData.appointment_date}
-                    onChange={(e) => handleInputChange("appointment_date", e.target.value)}
-                    min={format(new Date(), "yyyy-MM-dd")}
-                    max={format(addDays(new Date(), 90), "yyyy-MM-dd")}
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="appointment_time">Time *</Label>
-                  <Select
-                    value={formData.appointment_time}
-                    onValueChange={(value) => handleInputChange("appointment_time", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select time" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {generateTimeSlots().map((time) => (
-                        <SelectItem key={time} value={time}>
-                          {time}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="duration">Duration (minutes)</Label>
-                  <Select value={formData.duration} onValueChange={(value) => handleInputChange("duration", value)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="15">15 minutes</SelectItem>
-                      <SelectItem value="30">30 minutes</SelectItem>
-                      <SelectItem value="45">45 minutes</SelectItem>
-                      <SelectItem value="60">1 hour</SelectItem>
-                      <SelectItem value="90">1.5 hours</SelectItem>
-                      <SelectItem value="120">2 hours</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor="reason">Reason for Visit</Label>
-                  <Input
-                    id="reason"
-                    value={formData.reason}
-                    onChange={(e) => handleInputChange("reason", e.target.value)}
-                    placeholder="e.g., Routine checkup, Follow-up"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Additional Notes */}
-          <Card className="border-medledger-teal/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-medledger-navy">
-                <FileText className="h-5 w-5" />
-                Additional Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div>
-                <Label htmlFor="notes">Notes</Label>
-                <Textarea
-                  id="notes"
-                  value={formData.notes}
-                  onChange={(e) => handleInputChange("notes", e.target.value)}
-                  placeholder="Any special instructions or notes for this appointment..."
-                  rows={3}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Appointment Summary */}
-          {selectedPatient && formData.appointment_date && formData.appointment_time && (
-            <Card className="border-medledger-teal/20 bg-medledger-light/10">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-medledger-navy">
-                  <Clock className="h-5 w-5" />
-                  Appointment Summary
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2 text-sm">
-                  <p>
-                    <strong>Patient:</strong> {selectedPatientInfo?.first_name} {selectedPatientInfo?.last_name}
-                  </p>
-                  <p>
-                    <strong>Date:</strong> {format(new Date(formData.appointment_date), "EEEE, MMMM do, yyyy")}
-                  </p>
-                  <p>
-                    <strong>Time:</strong> {formData.appointment_time}
-                  </p>
-                  <p>
-                    <strong>Duration:</strong> {formData.duration} minutes
-                  </p>
-                  {formData.reason && (
-                    <p>
-                      <strong>Reason:</strong> {formData.reason}
-                    </p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Submit Buttons */}
-          <div className="flex gap-4 justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => router.back()}
-              className="border-medledger-teal text-medledger-teal hover:bg-medledger-teal/10"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={loading || !selectedPatient || !formData.appointment_date || !formData.appointment_time}
-              className="bg-medledger-teal hover:bg-medledger-teal/90"
-            >
-              {loading ? "Scheduling..." : "Schedule Appointment"}
-            </Button>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Patient Selection */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <User className="h-5 w-5 text-medledger-teal" />
+            Patient Information
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label htmlFor="patient">Select Patient *</Label>
+            <Select value={selectedPatient} onValueChange={setSelectedPatient} disabled={isLoadingPatients}>
+              <SelectTrigger>
+                <SelectValue placeholder={isLoadingPatients ? "Loading patients..." : "Choose a patient"} />
+              </SelectTrigger>
+              <SelectContent>
+                {patients.map((patient) => (
+                  <SelectItem key={patient.id} value={patient.id}>
+                    {patient.first_name} {patient.last_name} - ID: {patient.id.slice(0, 8)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        </form>
+
+          {selectedPatientData && (
+            <div className="p-4 bg-medledger-light/20 rounded-lg">
+              <h4 className="font-semibold text-medledger-navy mb-2">Patient Details</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                <div>
+                  <strong>Name:</strong> {selectedPatientData.first_name} {selectedPatientData.last_name}
+                </div>
+                <div>
+                  <strong>Phone:</strong> {selectedPatientData.phone}
+                </div>
+                <div>
+                  <strong>Email:</strong> {selectedPatientData.email || "Not provided"}
+                </div>
+                <div>
+                  <strong>Date of Birth:</strong>{" "}
+                  {selectedPatientData.date_of_birth
+                    ? format(new Date(selectedPatientData.date_of_birth), "PPP")
+                    : "Not provided"}
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Appointment Scheduling */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-medledger-teal" />
+            Schedule Details
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Label>Appointment Date *</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {appointmentDate ? format(appointmentDate, "PPP") : "Select date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={appointmentDate}
+                    onSelect={setAppointmentDate}
+                    disabled={(date) =>
+                      isBefore(startOfDay(date), startOfDay(new Date())) || date > addDays(new Date(), 90)
+                    }
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div>
+              <Label htmlFor="time">Appointment Time *</Label>
+              <Select value={appointmentTime} onValueChange={setAppointmentTime}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select time" />
+                </SelectTrigger>
+                <SelectContent>
+                  {timeSlots.map((time) => (
+                    <SelectItem key={time} value={time}>
+                      {time}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="duration">Duration</Label>
+              <Select value={duration} onValueChange={setDuration}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select duration" />
+                </SelectTrigger>
+                <SelectContent>
+                  {durationOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {appointmentDate && appointmentTime && (
+            <div className="p-4 bg-medledger-teal/10 rounded-lg">
+              <h4 className="font-semibold text-medledger-navy mb-2">Appointment Summary</h4>
+              <div className="text-sm space-y-1">
+                <div>
+                  <strong>Date:</strong> {format(appointmentDate, "EEEE, MMMM d, yyyy")}
+                </div>
+                <div>
+                  <strong>Time:</strong> {appointmentTime}
+                </div>
+                <div>
+                  <strong>Duration:</strong> {durationOptions.find((d) => d.value === duration)?.label}
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Appointment Details */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-medledger-teal" />
+            Appointment Details
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label htmlFor="reason">Reason for Visit *</Label>
+            <Input
+              id="reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g., Regular check-up, Follow-up, Consultation"
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="notes">Additional Notes</Label>
+            <Textarea
+              id="notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any additional information or special instructions..."
+              rows={3}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Submit Button */}
+      <div className="flex gap-4">
+        <Button type="submit" className="bg-medledger-teal hover:bg-medledger-teal/90" disabled={isLoading}>
+          {isLoading ? "Scheduling..." : "Schedule Appointment"}
+        </Button>
+        <Button type="button" variant="outline" onClick={() => router.push("/appointments")}>
+          Cancel
+        </Button>
       </div>
-    </DashboardLayout>
+    </form>
   )
 }

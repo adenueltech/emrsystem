@@ -1,26 +1,31 @@
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
-import { cookies } from "next/headers"
+import { createClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
 
 export async function GET(request: NextRequest) {
-  const requestUrl = new URL(request.url)
-  const code = requestUrl.searchParams.get("code")
+  const { searchParams, origin } = new URL(request.url)
+  const code = searchParams.get("code")
+  const next = searchParams.get("next") ?? "/dashboard"
 
   if (code) {
-    const cookieStore = cookies()
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
+    const supabase = await createClient()
 
     try {
-      await supabase.auth.exchangeCodeForSession(code)
-      // Redirect to the confirmed page instead of dashboard
-      return NextResponse.redirect(`${requestUrl.origin}/auth/confirmed`)
+      const { error } = await supabase.auth.exchangeCodeForSession(code)
+
+      if (!error) {
+        // Successful verification - redirect to confirmed page
+        return NextResponse.redirect(`${origin}/auth/confirmed`)
+      } else {
+        console.error("Email verification error:", error)
+        // Verification failed - redirect to login with error
+        return NextResponse.redirect(`${origin}/auth/login?error=verification_failed`)
+      }
     } catch (error) {
-      console.error("Error exchanging code for session:", error)
-      // Redirect to login with error message
-      return NextResponse.redirect(`${requestUrl.origin}/auth/login?error=verification_failed`)
+      console.error("Unexpected error during verification:", error)
+      return NextResponse.redirect(`${origin}/auth/login?error=verification_failed`)
     }
   }
 
-  // If no code, redirect to login
-  return NextResponse.redirect(`${requestUrl.origin}/auth/login`)
+  // No code provided - redirect to login
+  return NextResponse.redirect(`${origin}/auth/login`)
 }
