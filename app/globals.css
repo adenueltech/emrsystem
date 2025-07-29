@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 200 50% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 200 50% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 200 50% 15%;
+    --primary: 188 100% 23%;
+    --primary-foreground: 195 53% 95%;
+    --secondary: 195 53% 95%;
+    --secondary-foreground: 200 50% 15%;
+    --muted: 195 20% 96%;
+    --muted-foreground: 200 10% 40%;
+    --accent: 195 20% 96%;
+    --accent-foreground: 200 50% 15%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 195 20% 90%;
+    --input: 195 20% 90%;
+    --ring: 188 100% 23%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 200 50% 5%;
+    --foreground: 195 53% 95%;
+    --card: 200 50% 8%;
+    --card-foreground: 195 53% 95%;
+    --popover: 200 50% 8%;
+    --popover-foreground: 195 53% 95%;
+    --primary: 188 100% 23%;
+    --primary-foreground: 195 53% 95%;
+    --secondary: 200 50% 12%;
+    --secondary-foreground: 195 53% 95%;
+    --muted: 200 50% 12%;
+    --muted-foreground: 195 20% 65%;
+    --accent: 200 50% 12%;
+    --accent-foreground: 195 53% 95%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 200 50% 12%;
+    --input: 200 50% 12%;
+    --ring: 188 100% 23%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Custom medical form styles */
+.medical-form {
+  @apply space-y-6;
+}
+
+.medical-form .form-section {
+  @apply bg-white p-6 rounded-lg border border-gray-200 shadow-sm;
+}
+
+.medical-form .form-section h3 {
+  @apply text-lg font-semibold text-medledger-navy mb-4 border-b border-gray-200 pb-2;
+}
+
+/* Vital signs grid */
+.vitals-grid {
+  @apply grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4;
+}
+
+/* SOAP notes styling */
+.soap-section {
+  @apply bg-medledger-light/30 p-4 rounded-lg border border-medledger-teal/20;
+}
+
+.soap-section h4 {
+  @apply font-semibold text-medledger-navy mb-2;
+}
+
+/* Prescription styling */
+.prescription-item {
+  @apply bg-white p-4 rounded-lg border border-gray-200 shadow-sm;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+  .vitals-grid {
+    @apply grid-cols-2;
+  }
+
+  .medical-form .form-section {
+    @apply p-4;
+  }
+}
+
+/* Print styles for prescriptions */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .prescription-print {
+    @apply text-black bg-white;
+  }
+}
