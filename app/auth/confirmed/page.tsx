@@ -1,72 +1,48 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { CheckCircle, Stethoscope, ArrowRight, Shield } from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { CheckCircle, ArrowRight, Shield } from "lucide-react"
 
 export default function ConfirmedPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-medledger-light via-white to-medledger-light/50 p-4">
-      <Card className="w-full max-w-md border-medledger-teal/20">
+    <div className="min-h-screen bg-gradient-to-br from-medledger-teal/5 to-medledger-navy/5 flex items-center justify-center p-4">
+      <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <Link
-            href="/"
-            className="flex items-center justify-center space-x-2 mb-4 hover:opacity-80 transition-opacity"
-          >
-            <Stethoscope className="h-8 w-8 text-medledger-teal" />
-            <span className="text-2xl font-bold text-medledger-navy">MedLedger NG</span>
-          </Link>
-
-          <div className="flex justify-center mb-4">
-            <div className="relative">
-              <CheckCircle className="h-16 w-16 text-green-500 animate-pulse" />
-              <div className="absolute inset-0 h-16 w-16 text-green-500 animate-ping opacity-20">
-                <CheckCircle className="h-16 w-16" />
-              </div>
-            </div>
+          <div className="mx-auto mb-4 w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+            <CheckCircle className="h-8 w-8 text-green-600" />
           </div>
-
-          <CardTitle className="text-2xl text-medledger-navy">Email Verified Successfully!</CardTitle>
-          <CardDescription className="text-base">
-            Welcome to MedLedger NG! Your account has been verified and is ready to use.
-          </CardDescription>
+          <CardTitle className="text-2xl font-bold text-medledger-navy">Email Verified Successfully!</CardTitle>
         </CardHeader>
-
-        <CardContent className="space-y-6">
-          <div className="bg-medledger-light/20 p-4 rounded-lg">
-            <h3 className="font-semibold text-medledger-navy mb-2">What's Next?</h3>
-            <ul className="text-sm text-gray-600 space-y-1">
-              <li>• Sign in to access your dashboard</li>
-              <li>• Add your first patient</li>
-              <li>• Schedule appointments</li>
-              <li>• Start recording visits</li>
-            </ul>
+        <CardContent className="space-y-6 text-center">
+          <div className="space-y-2">
+            <p className="text-gray-600">
+              Welcome to MedLedger NG! Your email has been successfully verified and your account is now active.
+            </p>
+            <p className="text-sm text-gray-500">
+              You can now access all features of our Electronic Health Records platform.
+            </p>
           </div>
 
-          <div className="flex items-center gap-2 text-sm text-gray-600 bg-green-50 p-3 rounded-lg">
-            <Shield className="h-4 w-4 text-green-600" />
-            <span>Your data is secure and protected with us</span>
+          <div className="flex items-center justify-center gap-2 text-sm text-green-600 bg-green-50 p-3 rounded-lg">
+            <Shield className="h-4 w-4" />
+            <span>Your data is secure and protected</span>
           </div>
 
           <div className="space-y-3">
             <Button asChild className="w-full bg-medledger-teal hover:bg-medledger-teal/90">
-              <Link href="/auth/login" className="flex items-center justify-center gap-2">
-                Sign In to Dashboard
+              <Link href="/dashboard" className="flex items-center justify-center gap-2">
+                Go to Dashboard
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
 
             <Button asChild variant="outline" className="w-full bg-transparent">
-              <Link href="/">Back to Home</Link>
+              <Link href="/auth/login">Back to Login</Link>
             </Button>
           </div>
 
-          <div className="text-center text-sm text-gray-500">
-            <p>
-              Need help?{" "}
-              <Link href="/contact" className="text-medledger-teal hover:underline">
-                Contact Support
-              </Link>
-            </p>
+          <div className="pt-4 border-t">
+            <p className="text-xs text-gray-500">Need help? Contact our support team for assistance.</p>
           </div>
         </CardContent>
       </Card>
