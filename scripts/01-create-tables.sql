@@ -1,5 +1,5 @@
--- Enable RLS
-ALTER DATABASE postgres SET "app.jwt_secret" TO 'your-jwt-secret';
+-- MedLedger NG Database Schema
+-- This script creates the core tables for the EHR system
 
 -- Create profiles table
 CREATE TABLE IF NOT EXISTS profiles (
